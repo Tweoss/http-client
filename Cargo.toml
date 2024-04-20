@@ -6,20 +6,20 @@ edition = "2021"
 rust-version = "1.65"
 
 [dependencies]
-# egui = "0.25.0"
-# eframe = { version = "0.25.0", default-features = false, features = [
-#     "default_fonts", # Embed the default egui fonts.
-#     "glow",          # Use the glow rendering backend. Alternative: "wgpu".
-#     "persistence",   # Enable restoring app state when restarting the app.
-# ] }
-# egui = { path = "/home/fchua/egui/crates/egui" }
-egui = { git = "https://github.com/emilk/egui.git", rev = "5cf99c6308e36b5f36861accea6835f190924cce" }
-# egui = { git = "https://github.com/emilk/egui.git", rev = "5cf99c6308e36b5f36861accea6835f190924cce" }
-eframe = { git = "https://github.com/emilk/egui.git", rev = "5cf99c6308e36b5f36861accea6835f190924cce", default-features = false, features = [
+egui = "0.27.2"
+eframe = { version = "0.27.2", default-features = false, features = [
     "default_fonts", # Embed the default egui fonts.
     "glow",          # Use the glow rendering backend. Alternative: "wgpu".
     "persistence",   # Enable restoring app state when restarting the app.
 ] }
+# egui = { path = "/home/fchua/egui/crates/egui" }
+# egui = { git = "https://github.com/emilk/egui.git", rev = "5cf99c6308e36b5f36861accea6835f190924cce" }
+# egui = { git = "https://github.com/emilk/egui.git", rev = "5cf99c6308e36b5f36861accea6835f190924cce" }
+# eframe = { git = "https://github.com/emilk/egui.git", rev = "5cf99c6308e36b5f36861accea6835f190924cce", default-features = false, features = [
+#     "default_fonts", # Embed the default egui fonts.
+#     "glow",          # Use the glow rendering backend. Alternative: "wgpu".
+#     "persistence",   # Enable restoring app state when restarting the app.
+# ] }
 # eframe = { path = "/home/fchua/egui/crates/eframe", features = [
 # ] }
 log = "0.4"

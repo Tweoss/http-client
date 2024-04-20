@@ -7,11 +7,13 @@ use std::{
 };
 
 use anyhow::Result;
-use egui::{Area, Id, LayerId, Vec2, Visuals};
+use egui::{emath::TSTransform, Visuals};
 use reqwest::Client;
 
 use crate::{
-    graphs::{add_main_node, add_node, get_connection, Graph, Ports, Relation},
+    graphs::{
+        add_main_node, add_node, get_connection, Ports, Relation, RelationStorage, TransformClip,
+    },
     handle::Handle,
     http::HttpContext,
 };
@@ -26,6 +28,7 @@ pub struct App {
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
 struct Storage {
     target: Handle,
+    transform: TSTransform,
 }
 
 impl Default for Storage {
@@ -35,6 +38,7 @@ impl Default for Storage {
                 "1000000000000000000000000000000000000000000000000000000000000024",
             )
             .unwrap(),
+            transform: TSTransform::default(),
         }
     }
 }
@@ -46,7 +50,7 @@ struct State {
     client: Arc<Client>,
     response_tx: Sender<Result<Vec<Relation>>>,
     response_rx: Receiver<Result<Vec<Relation>>>,
-    connections: Graph,
+    connections: RelationStorage,
     tick: usize,
 }
 
@@ -86,7 +90,7 @@ impl Default for State {
             client: Arc::new(Client::new()),
             response_tx: tx,
             response_rx: rx,
-            connections: Graph::default(),
+            connections: RelationStorage::default(),
             tick: 0,
         }
     }
@@ -154,31 +158,50 @@ impl eframe::App for App {
         }
 
         egui::SidePanel::left("left_panel").show(ctx, |ui| {
-            Area::new("bonjour")
-                .order(egui::Order::Foreground)
-                .show(ctx, |ui| {
-                    ui.heading("Bonjour Left");
-                    let _ = ui.button("bonjour").clicked();
-                    *tick += 1;
-
-                    // TODO
-                    // ctx.transform_layer(
-                    //     LayerId::new(egui::Order::Foreground, Id::new("bonjour")),
-                    //     Vec2::new(
-                    //         50.0 + 10.0 * f32::cos(*tick as f32 / 10.0),
-                    //         100.0 + 10.0 * f32::sin(*tick as f32 / 10.0),
-                    //     ),
-                    //     1.0 + f32::sin(*tick as f32 / 100.0),
-                    // );
-                })
+            // TODO add some nice controls
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Objects");
             ui.separator();
 
+            let (id, rect) = ui.allocate_space(ui.available_size());
+            let response = ui.interact(rect, id, egui::Sense::click_and_drag());
+            // Allow dragging the background as well.
+            if response.dragged() {
+                storage.transform.translation += response.drag_delta();
+            }
+
+            // Plot-like reset
+            if response.double_clicked() {
+                storage.transform = TSTransform::default();
+            }
+
+            let transform = TSTransform::from_translation(ui.min_rect().left_top().to_vec2())
+                * storage.transform;
+
+            if let Some(pointer) = ui.ctx().input(|i| i.pointer.hover_pos()) {
+                // Note: doesn't catch zooming / panning if a button in this PanZoom container is hovered.
+                if response.hovered() {
+                    let pointer_in_layer = transform.inverse() * pointer;
+                    let zoom_delta = ui.ctx().input(|i| i.zoom_delta());
+                    let pan_delta = ui.ctx().input(|i| i.smooth_scroll_delta);
+
+                    // Zoom in on pointer:
+                    storage.transform = storage.transform
+                        * TSTransform::from_translation(pointer_in_layer.to_vec2())
+                        * TSTransform::from_scaling(zoom_delta)
+                        * TSTransform::from_translation(-pointer_in_layer.to_vec2());
+
+                    // Pan:
+                    storage.transform =
+                        TSTransform::from_translation(pan_delta) * storage.transform;
+                }
+            }
+
+            let clip = TransformClip { transform, rect };
+
             let mut handle_to_ports: HashMap<Handle, Ports> = HashMap::new();
-            let painter = ui.painter();
 
             let main_handle = match Handle::from_hex(target_input) {
                 Ok(h) => {
@@ -199,44 +222,50 @@ impl eframe::App for App {
                     connections,
                     target_input,
                     error.read(),
+                    clip.clone(),
                 ),
             );
 
-            connections.visit_bfs(main_handle.clone(), |connection| {
-                let out_port = *handle_to_ports
-                    .entry(connection.lhs.clone())
-                    .or_insert_with(|| {
-                        add_node(http_ctx.clone(), connection.lhs.clone(), connections)
-                    })
-                    .outputs
-                    .get(&connection.relation_type)
-                    .expect("Connection without port");
-                let in_port = handle_to_ports
-                    .entry(connection.rhs.clone())
-                    .or_insert_with(|| {
-                        add_node(http_ctx.clone(), connection.rhs.clone(), connections)
-                    })
-                    .input;
-
-                painter.add(get_connection(
-                    out_port,
-                    in_port,
-                    connection.relation_type,
-                    connection.lhs == connection.rhs,
-                ));
+            let painter = ui.painter();
+            connections.visit_bfs(main_handle.clone(), {
+                let connections = &connections;
+                move |connection| {
+                    if let Some((port_type, rhs)) = connection.rhs.get_port_type() {
+                        let out_port = *handle_to_ports
+                            .entry(connection.lhs.clone())
+                            .or_insert_with({
+                                || {
+                                    add_node(
+                                        http_ctx.clone(),
+                                        connection.lhs.clone(),
+                                        connections,
+                                        clip.clone(),
+                                    )
+                                }
+                            })
+                            .outputs
+                            .get(&port_type)
+                            .expect("Connection without port");
+                        let in_port = handle_to_ports
+                            .entry(rhs.clone())
+                            .or_insert_with({
+                                let clip = clip.clone();
+                                || add_node(http_ctx.clone(), rhs.clone(), connections, clip)
+                            })
+                            .input;
+                        let clip = clip.clone();
+                        // TODO: clip bezier
+                        painter.add(get_connection(
+                            out_port,
+                            in_port,
+                            port_type,
+                            connection.lhs == rhs,
+                            clip,
+                        ));
+                    }
+                }
             });
         });
-        // // ctx.set_embed_viewports(true);
-        // ctx.show_viewport_deferred(
-        //     egui::ViewportId::from_hash_of("panels_viewport"),
-        //     ViewportBuilder::default(),
-        //     |ctx, class| {
-        //         // ctx.set_zoom_factor(0.5);
-        //         egui::CentralPanel::default().show(ctx, |ui| {
-        //             ui.heading("bonk");
-        //         });
-        //     },
-        // );
 
         *first_render = false;
     }
