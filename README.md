@@ -2,9 +2,14 @@
 
 ## Running
 
-If the `BUILD_VISUALIZER` cmake cache variable is set, e.g. with `-DBUILD_VISUALIZER` when configure the build directory,
+Run `trunk build` and note the path to the `dist` directory, and build fixpoint. See [fix documentation](https://github.com/fix-project/fix). 
+
 `cmake` will attempt to build the viewer to a website. Then, running the `http-tester`, for example with
 `http-tester 9090 ~/fix/build/src/tester/http-client/` will serve the viewer on the given port.
+
+```
+cmake --build build --target http-tester; ./build/src/tester/http-tester serve 9090 [PATH_TO_DIST_DIRECTORY] application: tree:3 tree:3 uint64:1000000 uint64:1 uint64:1 label:compile-encode file:build/testing/wasm-examples/add-simple.wasm uint32:9 uint32:7
+```
 
 If developing on a remote machine, such as stagecast, and viewing from a local machine, like a laptop, ssh port forwarding
 must be setup to access the http-tester's server. This can be accomplished with `ssh -L 9090:127.0.0.1:9090 stagecast.org`.
