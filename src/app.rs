@@ -227,6 +227,7 @@ impl eframe::App for App {
             );
 
             let painter = ui.painter();
+            let painter = painter.with_clip_rect(rect);
             connections.visit_bfs(main_handle.clone(), {
                 let connections = &connections;
                 move |connection| {

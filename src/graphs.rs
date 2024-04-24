@@ -392,7 +392,8 @@ fn get_bezier(
         color,
     };
 
-    let control_scale = ((dst.x - src.x) / 2.0).max(30.0);
+    let x_dist = dst.x - src.x;
+    let control_scale = (x_dist / 2.0).max(-x_dist / 4.0).max(80.0);
     let src_control = src + src_dir * control_scale;
     let dst_control = dst + dst_dir * control_scale;
 
