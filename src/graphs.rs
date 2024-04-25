@@ -105,9 +105,9 @@ pub enum RelationRhs {
     Description(String),
 }
 
-impl Display for RelationRhs {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = match self {
+impl RelationRhs {
+    fn get_abbrev(&self) -> Cow<str> {
+        match self {
             Self::Eval(_) => Cow::Borrowed("evaluates into"),
             Self::Apply(_) => Cow::Borrowed("applies into"),
             Self::Pin(_) => Cow::Borrowed("pins"),
@@ -116,8 +116,24 @@ impl Display for RelationRhs {
             Self::TagLabel(_) => Cow::Borrowed("with this label"),
             Self::TreeEntry(_, i) => Cow::Owned(format!("has entry at index [{}]", i)),
             Self::Description(s) => Cow::Borrowed(s.as_str()),
-        };
-        f.write_fmt(format_args!("{}", name))
+        }
+    }
+}
+
+impl Display for RelationRhs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Eval(h) => f.write_fmt(format_args!("evaluates into {}", h.to_hex())),
+            Self::Apply(h) => f.write_fmt(format_args!("applies into {}", h.to_hex())),
+            Self::Pin(h) => f.write_fmt(format_args!("pins {}", h.to_hex())),
+            Self::TagAuthor(h) => f.write_fmt(format_args!("this object {}", h.to_hex())),
+            Self::TagTarget(h) => f.write_fmt(format_args!("tags this object {}", h.to_hex())),
+            Self::TagLabel(h) => f.write_fmt(format_args!("with this label {}", h.to_hex())),
+            Self::TreeEntry(h, i) => {
+                f.write_fmt(format_args!("has entry {} at index [{}]", h.to_hex(), i))
+            }
+            Self::Description(s) => f.write_fmt(format_args!("{}", s.as_str())),
+        }
     }
 }
 
@@ -209,7 +225,7 @@ fn add_object(
             for relation in relations {
                 // Sorted by relation type.
                 let start_height = ui.min_rect().bottom();
-                ui.label(relation.rhs.to_string());
+                ui.label(relation.rhs.get_abbrev());
                 let end_height = ui.min_rect().bottom();
                 ui.end_row();
                 if let Some((port_type, _)) = relation.rhs.get_port_type() {

@@ -1,4 +1,8 @@
-use std::sync::{mpsc::Sender, Arc};
+use std::sync::{
+    atomic::{AtomicU32, AtomicUsize, Ordering},
+    mpsc::{self, Receiver, Sender},
+    Arc,
+};
 
 use anyhow::{ensure, Context, Result};
 use reqwest::Client;
@@ -14,7 +18,32 @@ pub(crate) struct HttpContext {
     pub(crate) client: Arc<Client>,
     pub(crate) egui_ctx: egui::Context,
     pub(crate) url_base: String,
-    pub(crate) tx: Sender<Result<Vec<Relation>>>,
+    pub(crate) tx: Sender<Result<Vec<(usize, LogEntry)>>>,
+    pub(crate) counter: Arc<AtomicUsize>,
+}
+
+pub(crate) struct HttpLog {
+    pub tx: Sender<Result<Vec<(usize, LogEntry)>>>,
+    pub rx: Receiver<Result<Vec<(usize, LogEntry)>>>,
+    pub log: Vec<(usize, LogEntry)>,
+}
+
+#[derive(Clone)]
+pub(crate) enum LogEntry {
+    // TODO: have enum for request types
+    Request,
+    Response(Relation),
+}
+
+impl HttpLog {
+    pub(crate) fn new() -> Self {
+        let (tx, rx) = mpsc::channel();
+        HttpLog {
+            tx,
+            rx,
+            log: vec![],
+        }
+    }
 }
 
 pub(crate) fn get<T, F>(ctx: HttpContext, map: F, url_path: String)
@@ -22,6 +51,8 @@ where
     T: DeserializeOwned + Send,
     F: FnOnce(T) -> Result<Vec<Relation>> + Send + 'static,
 {
+    let count = ctx.counter.fetch_add(1, Ordering::SeqCst);
+    let _ = ctx.tx.send(Ok(vec![(count, LogEntry::Request)]));
     let task = async move {
         let result = ctx
             .client
@@ -31,7 +62,13 @@ where
         match result {
             Ok(ok) => {
                 let json = ok.json::<T>().await;
-                let _ = ctx.tx.send(json.context("parsing json").and_then(map));
+                let _ = ctx
+                    .tx
+                    .send(json.context("parsing json").and_then(map).map(|v| {
+                        v.into_iter()
+                            .map(|r| (count, LogEntry::Response(r)))
+                            .collect()
+                    }));
             }
             Err(e) => {
                 let _ = ctx

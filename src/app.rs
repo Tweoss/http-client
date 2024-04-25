@@ -1,22 +1,17 @@
-use std::{
-    collections::HashMap,
-    sync::{
-        mpsc::{channel, Receiver, Sender},
-        Arc,
-    },
-};
+mod views;
 
-use anyhow::Result;
+use std::sync::{atomic::AtomicUsize, Arc};
+
 use egui::{emath::TSTransform, Visuals};
 use reqwest::Client;
 
 use crate::{
-    graphs::{
-        add_main_node, add_node, get_connection, Ports, Relation, RelationStorage, TransformClip,
-    },
+    graphs::RelationStorage,
     handle::Handle,
-    http::HttpContext,
+    http::{HttpContext, HttpLog, LogEntry},
 };
+
+use self::views::View;
 
 pub struct App {
     state: State,
@@ -29,6 +24,7 @@ pub struct App {
 struct Storage {
     target: Handle,
     transform: TSTransform,
+    view: View,
 }
 
 impl Default for Storage {
@@ -39,6 +35,7 @@ impl Default for Storage {
             )
             .unwrap(),
             transform: TSTransform::default(),
+            view: View::Graph,
         }
     }
 }
@@ -48,10 +45,12 @@ struct State {
     error: Error,
     first_render: bool,
     client: Arc<Client>,
-    response_tx: Sender<Result<Vec<Relation>>>,
-    response_rx: Receiver<Result<Vec<Relation>>>,
+    log: HttpLog,
+    // response_tx: Sender<Result<Vec<(usize, Relation)>>>,
+    // response_rx: Receiver<Result<Vec<(usize, Relation)>>>,
     connections: RelationStorage,
-    tick: usize,
+    counter: Arc<AtomicUsize>,
+    // log: Vec<(usize, Relation)>,
 }
 
 #[derive(Default)]
@@ -81,17 +80,15 @@ impl Error {
 
 impl Default for State {
     fn default() -> Self {
-        let (tx, rx) = channel();
         Self {
             target_input: "1000000000000000000000000000000000000000000000000000000000000024"
                 .to_owned(),
             error: Error::default(),
             first_render: true,
             client: Arc::new(Client::new()),
-            response_tx: tx,
-            response_rx: rx,
             connections: RelationStorage::default(),
-            tick: 0,
+            counter: Arc::new(AtomicUsize::new(0)),
+            log: HttpLog::new(),
         }
     }
 }
@@ -128,146 +125,55 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
         let storage = &mut self.storage;
         let State {
-            target_input,
             error,
-            first_render,
             client,
-            response_tx: tx,
-            response_rx: rx,
             connections,
-            tick,
+            counter,
+            log,
+            ..
         } = &mut self.state;
 
         let http_ctx = HttpContext {
             client: client.clone(),
             egui_ctx: ctx.clone(),
             url_base: "127.0.0.1:9090".to_owned(),
-            tx: tx.clone(),
+            tx: log.tx.clone(),
+            counter: counter.clone(),
         };
 
-        if let Ok(new_connections) = rx.try_recv() {
+        if let Ok(new_connections) = log.rx.try_recv() {
             match new_connections {
                 Ok(new_connections) => {
                     error.clear();
-                    for c in new_connections {
-                        connections.insert(c);
+                    for (i, entry) in new_connections {
+                        if let LogEntry::Response(c) = entry.clone() {
+                            connections.insert(c.clone());
+                        }
+                        log.log.push((i, entry));
                     }
                 }
                 Err(e) => error.write(format!("{:#}", e)),
             }
         }
 
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.visuals_mut().button_frame = false;
+                ui.selectable_value(&mut storage.view, View::Graph, View::Graph.name());
+                ui.selectable_value(&mut storage.view, View::Text, View::Text.name());
+            });
+        });
+
         egui::SidePanel::left("left_panel").show(ctx, |ui| {
             // TODO add some nice controls
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Objects");
-            ui.separator();
-
-            let (id, rect) = ui.allocate_space(ui.available_size());
-            let response = ui.interact(rect, id, egui::Sense::click_and_drag());
-            // Allow dragging the background as well.
-            if response.dragged() {
-                storage.transform.translation += response.drag_delta();
-            }
-
-            // Plot-like reset
-            if response.double_clicked() {
-                storage.transform = TSTransform::default();
-            }
-
-            let transform = TSTransform::from_translation(ui.min_rect().left_top().to_vec2())
-                * storage.transform;
-
-            if let Some(pointer) = ui.ctx().input(|i| i.pointer.hover_pos()) {
-                // Note: doesn't catch zooming / panning if a button in this PanZoom container is hovered.
-                if response.hovered() {
-                    let pointer_in_layer = transform.inverse() * pointer;
-                    let zoom_delta = ui.ctx().input(|i| i.zoom_delta());
-                    let pan_delta = ui.ctx().input(|i| i.smooth_scroll_delta);
-
-                    // Zoom in on pointer:
-                    storage.transform = storage.transform
-                        * TSTransform::from_translation(pointer_in_layer.to_vec2())
-                        * TSTransform::from_scaling(zoom_delta)
-                        * TSTransform::from_translation(-pointer_in_layer.to_vec2());
-
-                    // Pan:
-                    storage.transform =
-                        TSTransform::from_translation(pan_delta) * storage.transform;
-                }
-            }
-
-            let clip = TransformClip { transform, rect };
-
-            let mut handle_to_ports: HashMap<Handle, Ports> = HashMap::new();
-
-            let main_handle = match Handle::from_hex(target_input) {
-                Ok(h) => {
-                    storage.target = h.clone();
-                    h
-                }
-                Err(e) => {
-                    error.write(format!("{:#}", e));
-                    storage.target.clone()
-                }
-            };
-
-            handle_to_ports.insert(
-                main_handle.clone(),
-                add_main_node(
-                    http_ctx.clone(),
-                    main_handle.clone(),
-                    connections,
-                    target_input,
-                    error.read(),
-                    clip.clone(),
-                ),
-            );
-
-            let painter = ui.painter();
-            let painter = painter.with_clip_rect(rect);
-            connections.visit_bfs(main_handle.clone(), {
-                let connections = &connections;
-                move |connection| {
-                    if let Some((port_type, rhs)) = connection.rhs.get_port_type() {
-                        let out_port = *handle_to_ports
-                            .entry(connection.lhs.clone())
-                            .or_insert_with({
-                                || {
-                                    add_node(
-                                        http_ctx.clone(),
-                                        connection.lhs.clone(),
-                                        connections,
-                                        clip.clone(),
-                                    )
-                                }
-                            })
-                            .outputs
-                            .get(&port_type)
-                            .expect("Connection without port");
-                        let in_port = handle_to_ports
-                            .entry(rhs.clone())
-                            .or_insert_with({
-                                let clip = clip.clone();
-                                || add_node(http_ctx.clone(), rhs.clone(), connections, clip)
-                            })
-                            .input;
-                        let clip = clip.clone();
-                        // TODO: clip bezier
-                        painter.add(get_connection(
-                            out_port,
-                            in_port,
-                            port_type,
-                            connection.lhs == rhs,
-                            clip,
-                        ));
-                    }
-                }
-            });
+            storage
+                .view
+                .clone()
+                .draw(ui, &mut self.state, storage, &http_ctx);
+            self.state.first_render = false;
         });
-
-        *first_render = false;
     }
 }
