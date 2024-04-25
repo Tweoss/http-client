@@ -1,6 +1,7 @@
 use std::{
     convert::TryFrom,
     fmt::{Display, Write},
+    str::FromStr,
 };
 
 use anyhow::{bail, ensure, Context, Result};
@@ -65,8 +66,20 @@ impl Handle {
 impl Display for Operation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Operation::Apply => "Apply",
-            Operation::Eval => "Eval",
+            Operation::Apply => "apply",
+            Operation::Eval => "eval",
         })
+    }
+}
+
+impl FromStr for Operation {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "apply" => Ok(Self::Apply),
+            "eval" => Ok(Self::Eval),
+            _ => Err(anyhow::format_err!("Invalid operation {}", s)),
+        }
     }
 }

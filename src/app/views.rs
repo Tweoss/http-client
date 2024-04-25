@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use egui::{emath::TSTransform, Ui};
+use egui::{emath::TSTransform, TextEdit, Ui};
 
 use crate::{
     graphs::{add_main_node, add_node, get_connection, Ports, TransformClip},
     handle::Handle,
-    http::{HttpContext, LogEntry},
+    http::{HttpContext, LogEntry, Request},
 };
 
 use super::{State, Storage};
@@ -147,14 +147,16 @@ pub fn graph_view(ui: &mut Ui, state: &mut State, storage: &mut Storage, http_ct
 pub fn text_view(ui: &mut Ui, state: &mut State, storage: &mut Storage, http_ctx: &HttpContext) {
     ui.heading("Bonjour  ");
     ui.separator();
+    ui.label(format!("Error: {}", state.error.read()));
+    ui.separator();
     egui::ScrollArea::both()
         .stick_to_bottom(true)
         .show(ui, |ui| {
             ui.style_mut().wrap = Some(false);
             for (i, entry) in &state.log.log {
                 match entry {
-                    LogEntry::Request => {
-                        ui.monospace(format!("[{i}]: Request"));
+                    LogEntry::Request(r) => {
+                        ui.monospace(format!("[{i}]: > {}", r));
                     }
                     LogEntry::Response(c) => {
                         ui.monospace(format!("[{i}]: {} {}", c.lhs.to_hex(), c.rhs));
@@ -162,4 +164,18 @@ pub fn text_view(ui: &mut Ui, state: &mut State, storage: &mut Storage, http_ctx
                 }
             }
         });
+    egui::TopBottomPanel::bottom("text_console").show(&http_ctx.egui_ctx, |ui| {
+        ui.horizontal(|ui| {
+            ui.label("> ");
+            let response = TextEdit::singleline(&mut state.log.command_input)
+                .desired_width(f32::INFINITY)
+                .show(ui)
+                .response;
+            if response.lost_focus() && http_ctx.egui_ctx.input(|i| i.key_pressed(egui::Key::Enter))
+            {
+                Request::parse_send(state.log.command_input.clone(), http_ctx.clone());
+                response.request_focus();
+            }
+        });
+    });
 }

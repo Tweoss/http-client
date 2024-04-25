@@ -11,7 +11,7 @@ use egui::{
 
 use crate::{
     handle::{Handle, Operation},
-    http::{self, HttpContext},
+    http::{HttpContext, Request},
 };
 
 /// Stores all the information we have obtained from the API.
@@ -287,14 +287,14 @@ fn add_object(
 
 fn add_fetch_buttons(ui: &mut Ui, ctx: HttpContext, handle: &Handle) {
     if ui.button("get description").clicked() {
-        http::get_description(ctx.clone(), handle);
+        Request::Explanations(handle.clone()).send(ctx.clone());
     }
 
     if ui.button("eval").clicked() {
-        http::get_relation(ctx.clone(), handle, Operation::Eval);
+        Request::Relations(handle.clone(), Operation::Eval).send(ctx.clone());
     }
     if ui.button("apply").clicked() {
-        http::get_relation(ctx.clone(), handle, Operation::Apply);
+        Request::Relations(handle.clone(), Operation::Apply).send(ctx.clone());
     }
 
     // // TODO: add blob, and maybe thunk pointing to tree.
@@ -305,11 +305,11 @@ fn add_fetch_buttons(ui: &mut Ui, ctx: HttpContext, handle: &Handle) {
         //     Object::Tag => http::get_tag_contents(ctx.clone(), handle, None),
         //     _ => unreachable!(),
         // }
-        http::get_tree_contents(ctx.clone(), handle);
+        Request::Contents(handle.clone()).send(ctx.clone());
     }
 
     if ui.button("get explanations").clicked() {
-        http::get_explanations(ctx.clone(), handle);
+        Request::Explanations(handle.clone()).send(ctx.clone());
     }
     // ui.end_row();
 }

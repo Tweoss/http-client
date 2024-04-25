@@ -46,11 +46,8 @@ struct State {
     first_render: bool,
     client: Arc<Client>,
     log: HttpLog,
-    // response_tx: Sender<Result<Vec<(usize, Relation)>>>,
-    // response_rx: Receiver<Result<Vec<(usize, Relation)>>>,
     connections: RelationStorage,
     counter: Arc<AtomicUsize>,
-    // log: Vec<(usize, Relation)>,
 }
 
 #[derive(Default)]
