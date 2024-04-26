@@ -287,7 +287,7 @@ fn add_object(
 
 fn add_fetch_buttons(ui: &mut Ui, ctx: HttpContext, handle: &Handle) {
     if ui.button("get description").clicked() {
-        Request::Explanations(handle.clone()).send(ctx.clone());
+        Request::Description(handle.clone()).send(ctx.clone());
     }
 
     if ui.button("eval").clicked() {
