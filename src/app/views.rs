@@ -145,25 +145,6 @@ pub fn graph_view(ui: &mut Ui, state: &mut State, storage: &mut Storage, http_ct
 }
 
 pub fn text_view(ui: &mut Ui, state: &mut State, storage: &mut Storage, http_ctx: &HttpContext) {
-    ui.heading("Bonjour  ");
-    ui.separator();
-    ui.label(format!("Error: {}", state.error.read()));
-    ui.separator();
-    egui::ScrollArea::both()
-        .stick_to_bottom(true)
-        .show(ui, |ui| {
-            ui.style_mut().wrap = Some(false);
-            for (i, entry) in &state.log.log {
-                match entry {
-                    LogEntry::Request(r) => {
-                        ui.monospace(format!("[{i}]: > {}", r));
-                    }
-                    LogEntry::Response(c) => {
-                        ui.monospace(format!("[{i}]: {} {}", c.lhs.to_hex(), c.rhs));
-                    }
-                }
-            }
-        });
     egui::TopBottomPanel::bottom("text_console").show(&http_ctx.egui_ctx, |ui| {
         ui.horizontal(|ui| {
             ui.label("> ");
@@ -177,5 +158,28 @@ pub fn text_view(ui: &mut Ui, state: &mut State, storage: &mut Storage, http_ctx
                 response.request_focus();
             }
         });
+    });
+    egui::CentralPanel::default().show(&http_ctx.egui_ctx, |ui| {
+        ui.heading("Bonjour  ");
+        ui.separator();
+        ui.label(format!("Error: {}", state.error.read()));
+        ui.separator();
+        egui::ScrollArea::both()
+            .stick_to_bottom(true)
+            .show(ui, |ui| {
+                ui.style_mut().wrap = Some(false);
+                for (i, entry) in &state.log.log {
+                    match entry {
+                        LogEntry::Request(r) => {
+                            ui.monospace(format!("[{i}]: > {}", r));
+                        }
+                        LogEntry::Response(c) => {
+                            ui.monospace(format!("[{i}]: {} {}", c.lhs.to_hex(), c.rhs));
+                        }
+                    }
+                }
+                // Fill up panel so that scrollbars are on sides.
+                ui.allocate_space(ui.available_size());
+            });
     });
 }
